@@ -13,15 +13,19 @@ import loadTestingRoutes from './routes/loadTesting.js';
 import chaosRoutes from './routes/chaos.js';
 import { eventMonitor } from './eventSourcing/index.js';
 import { auditLogger } from './security/index.js';
+import { getConfig } from './config/env.js';
 
 dotenv.config();
 
-const app = express();
-const PORT = process.env.PORT || 3001;
+const logger = {
+  info: (event, data) => console.log(`[${event}]`, data),
+};
 
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:3000', 'http://localhost:5173'];
+const app = express();
+const config = getConfig();
+const PORT = config.port;
+
+const ALLOWED_ORIGINS = config.security.corsOrigins;
 
 app.use(cors({
   origin: (origin, cb) => {
@@ -49,13 +53,12 @@ app.use('/api/load-testing', loadTestingRoutes);
 app.use('/api/chaos', chaosRoutes);
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', network: process.env.STELLAR_NETWORK });
+  res.json({ status: 'ok', network: config.stellarNetwork });
 });
 
 const httpServer = createServer(app);
 initWebSocket(httpServer);
 
 httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Network: ${process.env.STELLAR_NETWORK}`);
+  logger.info('server.started', { port: PORT, network: config.stellarNetwork });
 });
