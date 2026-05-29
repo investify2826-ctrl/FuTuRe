@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { isValidStellarAddress } from './utils/validateStellarAddress';
@@ -35,19 +35,21 @@ import { FileUpload } from './components/FileUpload';
 import { AccountCreatedCelebration } from './components/AccountCreatedCelebration';
 import { TxLookup } from './components/TxLookup';
 import { AddressBook } from './components/AddressBook';
-import { MultiSigTransactions } from './components/MultiSigTransactions';
-import { KYCForm } from './components/KYCForm';
 import { NotificationPreferences } from './components/NotificationPreferences';
 import { NotificationBell } from './components/NotificationBell';
 import { useTheme } from './contexts/ThemeContext';
 import { useAppState, useAppDispatch, A } from './store/index.js';
 import { useExchangeRate } from './hooks/useExchangeRate';
-import { AMMPoolBrowser } from './components/AMMPoolBrowser';
 import { ConvertWidget } from './components/ConvertWidget';
-import { AccountRecovery } from './components/AccountRecovery';
 import { XLMInfoIcon } from './components/XLMInfoIcon';
-import { ComplianceDashboard } from './components/ComplianceDashboard';
-import { BackupSettings } from './components/BackupSettings';
+
+// Heavy components loaded on-demand to keep the initial bundle small
+const AMMPoolBrowser = lazy(() => import('./components/AMMPoolBrowser').then(m => ({ default: m.AMMPoolBrowser })));
+const AccountRecovery = lazy(() => import('./components/AccountRecovery').then(m => ({ default: m.AccountRecovery })));
+const MultiSigTransactions = lazy(() => import('./components/MultiSigTransactions').then(m => ({ default: m.MultiSigTransactions })));
+const KYCForm = lazy(() => import('./components/KYCForm').then(m => ({ default: m.KYCForm })));
+const ComplianceDashboard = lazy(() => import('./components/ComplianceDashboard').then(m => ({ default: m.ComplianceDashboard })));
+const BackupSettings = lazy(() => import('./components/BackupSettings').then(m => ({ default: m.BackupSettings })));
 
 const TIMEOUT_MS = 30000;
 const KYC_LARGE_TRANSACTION_LIMIT = 1000;
@@ -925,12 +927,16 @@ function App() {
 
                 {/* AMM Pool Browser */}
                 <motion.div variants={v.fadeSlide}>
-                  <AMMPoolBrowser />
+                  <Suspense fallback={<Spinner />}>
+                    <AMMPoolBrowser />
+                  </Suspense>
                 </motion.div>
 
                 {/* Account Recovery */}
                 <motion.div variants={v.fadeSlide}>
-                  <AccountRecovery />
+                  <Suspense fallback={<Spinner />}>
+                    <AccountRecovery />
+                  </Suspense>
                 {/* Settings Sections Tabs */}
                 <motion.section className="section" variants={v.fadeSlide}>
                   <h2 style={{ marginBottom: 16 }}>Advanced Features</h2>
@@ -971,12 +977,16 @@ function App() {
                   <AnimatePresence mode="wait">
                     {activeSettingsSection === 'multisig' && (
                       <motion.div key="multisig" variants={v.fadeSlide} initial="hidden" animate="visible" exit="exit">
-                        <MultiSigTransactions publicKey={account.publicKey} />
+                        <Suspense fallback={<Spinner />}>
+                          <MultiSigTransactions publicKey={account.publicKey} />
+                        </Suspense>
                       </motion.div>
                     )}
                     {activeSettingsSection === 'kyc' && (
                       <motion.div key="kyc" variants={v.fadeSlide} initial="hidden" animate="visible" exit="exit">
-                        <KYCForm />
+                        <Suspense fallback={<Spinner />}>
+                          <KYCForm />
+                        </Suspense>
                       </motion.div>
                     )}
                     {activeSettingsSection === 'notifications' && (
@@ -1094,11 +1104,15 @@ function App() {
         )}
 
         {showComplianceDashboard && (
-          <ComplianceDashboard onClose={() => setShowComplianceDashboard(false)} />
+          <Suspense fallback={<Spinner />}>
+            <ComplianceDashboard onClose={() => setShowComplianceDashboard(false)} />
+          </Suspense>
         )}
 
         {showBackupSettings && (
-          <BackupSettings onClose={() => setShowBackupSettings(false)} />
+          <Suspense fallback={<Spinner />}>
+            <BackupSettings onClose={() => setShowBackupSettings(false)} />
+          </Suspense>
         )}
       </div>
     </>
