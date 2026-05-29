@@ -8,6 +8,7 @@ import { consumePendingCredentials } from '../recovery/recoveryStore.js';
 import { createRateLimiter } from '../middleware/rateLimiter.js';
 import { csrfTokenEndpoint } from '../middleware/csrf.js';
 import mfaManager from '../security/mfa.js';
+import oauth2Provider from '../security/oauth2.js';
 import { getConfig } from '../config/env.js';
 
 const router = express.Router();
@@ -341,6 +342,97 @@ router.post('/mfa/verify', requireAuth, (req, res) => {
     res.json({ message: 'MFA enabled successfully' });
   } catch (error) {
     res.status(403).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/auth/oauth/google:
+ *   get:
+ *     summary: Redirect to Google OAuth2 login
+ *     tags: [Auth]
+ *     security: []
+ *     parameters:
+ *       - in: query
+ *         name: state
+ *         schema:
+ *           type: string
+ *         description: CSRF state parameter
+ *     responses:
+ *       302:
+ *         description: Redirect to Google OAuth2 consent screen
+ */
+router.get('/oauth/google', (req, res) => {
+  const clientId = getConfig().oauth.googleClientId;
+  const redirectUri = `${getConfig().server.baseUrl}/api/auth/oauth/google/callback`;
+  const state = require('crypto').randomBytes(16).toString('hex');
+  
+  // Store state in session/cookie for verification
+  res.cookie('oauth_state', state, { httpOnly: true, maxAge: 10 * 60 * 1000 });
+  
+  const authUrl = oauth2Provider.getGoogleAuthURL(clientId, redirectUri, state);
+  res.redirect(authUrl);
+});
+
+/**
+ * @swagger
+ * /api/auth/oauth/google/callback:
+ *   get:
+ *     summary: Google OAuth2 callback handler
+ *     tags: [Auth]
+ *     security: []
+ *     parameters:
+ *       - in: query
+ *         name: code
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: state
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       302:
+ *         description: Redirect to frontend with tokens
+ *       400:
+ *         description: Invalid state or authorization code
+ */
+router.get('/oauth/google/callback', async (req, res) => {
+  const { code, state } = req.query;
+  const storedState = req.cookies.oauth_state;
+  
+  if (!code || !state || state !== storedState) {
+    return res.status(400).json({ error: 'Invalid state or authorization code' });
+  }
+
+  try {
+    const clientId = getConfig().oauth.googleClientId;
+    const clientSecret = getConfig().oauth.googleClientSecret;
+    const redirectUri = `${getConfig().server.baseUrl}/api/auth/oauth/google/callback`;
+    
+    // Exchange code for tokens
+    const googleTokens = await oauth2Provider.exchangeGoogleCode(code, clientId, clientSecret, redirectUri);
+    
+    // Get user info
+    const userInfo = await oauth2Provider.getGoogleUserInfo(googleTokens.access_token);
+    
+    // Find or create user
+    let user = findUser(userInfo.email);
+    if (!user) {
+      user = createUser(userInfo.email, ''); // OAuth users don't have passwords
+    }
+    
+    // Generate JWT tokens
+    const payload = { sub: user.id, username: user.username };
+    const accessToken = signAccessToken(payload);
+    const refreshToken = signRefreshToken(payload);
+    
+    // Redirect to frontend with tokens
+    const frontendUrl = getConfig().frontend.baseUrl;
+    res.redirect(`${frontendUrl}/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 
