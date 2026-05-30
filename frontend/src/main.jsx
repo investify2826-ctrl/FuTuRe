@@ -1,3 +1,4 @@
+import { initSentry } from './utils/errorLogger';
 // Validate required environment variables before anything else renders.
 // In production this throws immediately if VITE_API_URL (or any other required
 // var) is missing, preventing a silently broken deployment.
@@ -12,6 +13,9 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { AppStateProvider } from './store/index.js';
 import { queryClient } from './config/queryClient';
 import './index.css';
+
+// Initialize error tracking first
+initSentry();
 
 // Lazy-load App for code splitting
 const App = lazy(() => import('./App'));
