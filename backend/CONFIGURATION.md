@@ -168,6 +168,7 @@ Set `APP_ENV` to enable environment-specific defaults and validation:
 
 - `development` (default)
 - `test`
+- `staging`
 - `production`
 
 ## `.env` file loading
@@ -181,12 +182,34 @@ Files are loaded in this precedence order (later wins):
 
 `process.env` always overrides values from files.
 
-## Required variables (production)
+## Required variables (production and staging)
 
-When `APP_ENV=production`:
+When `APP_ENV=production` or `APP_ENV=staging`:
 
 - `ALLOWED_ORIGINS` (comma-separated)
 - `JWT_SECRET` (must not be `secret`)
+
+## Staging vs production differences
+
+| Concern | `staging` | `production` |
+|---|---|---|
+| Stellar network | `testnet` | `mainnet` |
+| Database | Dedicated staging DB | Production DB |
+| CORS | Staging frontend URL | Production frontend URL(s) |
+| Secret validation | Same strictness as production | Same strictness as staging |
+| OAuth credentials | Staging OAuth app | Production OAuth app |
+| Alerting | Staging Slack/email channel | Production on-call channel |
+
+Staging is deliberately production-like so that issues are caught before they reach users. The only intentional difference is the Stellar network — testnet prevents real funds from being used during QA.
+
+To bootstrap a staging environment:
+
+```bash
+cd backend
+cp .env.staging.example .env.staging
+# Fill in all REPLACE_WITH_* placeholders, then:
+APP_ENV=staging node src/server.js
+```
 
 ## Hot-reloading
 

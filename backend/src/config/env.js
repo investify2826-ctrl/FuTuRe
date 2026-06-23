@@ -275,17 +275,22 @@ export function createConfigFromEnv(env, { appEnv, nodeEnv, loadedEnvFiles } = {
   const allowedOrigins =
     allowedOriginsFromEnv.length > 0 ? allowedOriginsFromEnv : allowedOriginsDefault;
 
-  if (resolvedAppEnv === 'production' && allowedOriginsFromEnv.length === 0) {
-    throw new Error('ALLOWED_ORIGINS is required in production');
+  const validAppEnvs = ['development', 'test', 'staging', 'production'];
+  if (!validAppEnvs.includes(resolvedAppEnv)) {
+    throw new Error(`APP_ENV must be one of: ${validAppEnvs.join(', ')}`);
+  }
+
+  if ((resolvedAppEnv === 'production' || resolvedAppEnv === 'staging') && allowedOriginsFromEnv.length === 0) {
+    throw new Error('ALLOWED_ORIGINS is required in production and staging');
   }
 
   const jwtSecretRaw =
-    typeof env.JWT_SECRET === 'string' ? env.JWT_SECRET : resolvedAppEnv === 'production' ? '' : 'secret';
+    typeof env.JWT_SECRET === 'string' ? env.JWT_SECRET : (resolvedAppEnv === 'production' || resolvedAppEnv === 'staging') ? '' : 'secret';
   const jwtSecret = maybeDecryptEnvValue(jwtSecretRaw, encryptionKey, { envVarName: 'JWT_SECRET' });
-  if (resolvedAppEnv === 'production') {
+  if (resolvedAppEnv === 'production' || resolvedAppEnv === 'staging') {
     const secret = requiredString(jwtSecret, { envVarName: 'JWT_SECRET' });
     if (secret === 'secret') {
-      throw new Error('JWT_SECRET must not be the default value in production');
+      throw new Error('JWT_SECRET must not be the default value in production or staging');
     }
   }
 
