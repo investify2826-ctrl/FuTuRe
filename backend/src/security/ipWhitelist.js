@@ -1,9 +1,62 @@
 import prisma from '../db/client.js';
 import { logAdminAction } from '../db/adminAuditLog.js';
 import logger from '../config/logger.js';
+import { createRedisBackend } from '../cache/redis.js';
 
 const whitelistedIPsCache = new Map();
 let cacheInitialized = false;
+const IP_WHITELIST_UPDATE_CHANNEL = 'channel:ip_whitelist_updates';
+const redis = createRedisBackend();
+let redisSubscriber = null;
+let redisInit = null;
+
+function applyCacheUpdate(message) {
+  if (!message || typeof message !== 'object') return;
+  if (message.action === 'add' && message.entry?.ipAddress) {
+    whitelistedIPsCache.set(message.entry.ipAddress, message.entry);
+  } else if (message.action === 'remove' && message.ipAddress) {
+    whitelistedIPsCache.delete(message.ipAddress);
+  } else if (message.action === 'clear') {
+    whitelistedIPsCache.clear();
+  }
+}
+
+async function ensureRedisSubscription() {
+  if (redisInit) return redisInit;
+  redisInit = (async () => {
+    if (!redis.client?.duplicate) return;
+    try {
+      await redis.connect();
+      redisSubscriber = redis.client.duplicate();
+      redisSubscriber.on('error', () => {});
+      await redisSubscriber.connect();
+      await redisSubscriber.subscribe(IP_WHITELIST_UPDATE_CHANNEL);
+      redisSubscriber.on('message', (channel, rawMessage) => {
+        if (channel !== IP_WHITELIST_UPDATE_CHANNEL) return;
+        try {
+          applyCacheUpdate(JSON.parse(rawMessage));
+        } catch {
+          logger.warn('Invalid IP whitelist cache update received');
+        }
+      });
+    } catch (error) {
+      redisSubscriber = null;
+      logger.warn('IP whitelist Redis subscription unavailable', { error: error.message });
+    }
+  })();
+  return redisInit;
+}
+
+async function publishCacheUpdate(message) {
+  await ensureRedisSubscription();
+  if (redis.client?.status !== 'ready') return;
+  try {
+    await redis.client.publish(IP_WHITELIST_UPDATE_CHANNEL, JSON.stringify(message));
+  } catch (error) {
+    // Postgres is authoritative; Redis outages must not fail whitelist writes.
+    logger.warn('Failed to publish IP whitelist cache update', { error: error.message });
+  }
+}
 
 // Validate IPv4 address format
 function isValidIPv4(ip) {
@@ -44,6 +97,7 @@ async function initializeCache() {
   if (cacheInitialized) return;
 
   try {
+    await ensureRedisSubscription();
     const entries = await prisma.iPWhitelist.findMany();
     entries.forEach(entry => {
       whitelistedIPsCache.set(entry.ipAddress, entry);
@@ -98,6 +152,7 @@ async function addToWhitelist(ip, reason = null, adminId = null) {
     });
 
     whitelistedIPsCache.set(ip, entry);
+    await publishCacheUpdate({ action: 'add', entry });
 
     // Log to audit trail
     if (adminId) {
@@ -127,6 +182,7 @@ async function removeFromWhitelist(ip, adminId = null) {
     });
 
     whitelistedIPsCache.delete(ip);
+    await publishCacheUpdate({ action: 'remove', ipAddress: ip });
 
     // Log to audit trail
     if (adminId) {
@@ -152,6 +208,7 @@ async function clearWhitelist(adminId = null) {
 
     await prisma.iPWhitelist.deleteMany({});
     whitelistedIPsCache.clear();
+    await publishCacheUpdate({ action: 'clear' });
 
     // Log to audit trail
     if (adminId) {
